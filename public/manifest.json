@@ -1,0 +1,17 @@
+{
+  "name": "Uspex - Финансы и привычки",
+  "short_name": "Uspex",
+  "description": "Голосовой помощник для учёта финансов",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f9fafb",
+  "theme_color": "#4f46e5",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
