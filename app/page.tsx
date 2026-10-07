@@ -1,33 +1,56 @@
 'use client';
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowUpRight, ArrowDownRight, Wallet, TrendingUp, Plus, X, Trash2, Download, Upload, CreditCard, PiggyBank, Banknote, Mic, MicOff } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Wallet, TrendingUp, Plus, X, Trash2, Download, Upload, CreditCard, PiggyBank, Banknote, Mic, MicOff, Settings, Moon, Sun, Eye, EyeOff } from 'lucide-react';
 
-type Account = { id: number; name: string; type: 'cash' | 'virtual' | 'investment'; balance: number };
-type Transaction = { id: number; accountId: number; title: string; amount: number; type: 'income' | 'expense'; date: string; category?: string }; 
+type Account = { id: number; name: string; type: 'cash' | 'virtual' | 'investment'; balance: number; includeInTotal: boolean };
+type Transaction = { id: number; accountId: number; title: string; amount: number; type: 'income' | 'expense'; date: string; category?: string };
 type Debt = { id: number; person: string; amount: number; direction: 'i_owe' | 'owed_to_me' };
 type Habit = { id: number; name: string; type: 'good' | 'bad'; dailyImpact: number; completedToday: boolean };
 
 type VoiceMode = 'off' | 'waiting' | 'command';
+type Theme = 'light' | 'dark';
 
 export default function Home() {
   const [isMounted, setIsMounted] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [tab, setTab] = useState<'transaction' | 'account' | 'debt' | 'habit'>('transaction');
   const [voiceMode, setVoiceMode] = useState<VoiceMode>('off');
   const [voiceStatus, setVoiceStatus] = useState('');
   const [lastCommand, setLastCommand] = useState('');
+  const [theme, setTheme] = useState<Theme>('light');
 
   const recognitionRef = useRef<any>(null);
   const shouldListenRef = useRef(false);
   const voiceModeRef = useRef<VoiceMode>('off');
 
-  // Синхронизируем ref с state
   useEffect(() => { voiceModeRef.current = voiceMode; }, [voiceMode]);
 
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('uspex_theme') as Theme;
+    if (savedTheme) {
+      setTheme(savedTheme);
+      if (savedTheme === 'dark') {
+        document.documentElement.classList.add('dark');
+      }
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    const newTheme = theme === 'light' ? 'dark' : 'light';
+    setTheme(newTheme);
+    localStorage.setItem('uspex_theme', newTheme);
+    if (newTheme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  };
+
   const defaultAccounts: Account[] = [
-    { id: 1, name: 'Наличные', type: 'cash', balance: 0 },
-    { id: 2, name: 'Карта Сбер', type: 'virtual', balance: 0 },
-    { id: 3, name: 'Инвестиции', type: 'investment', balance: 0 }
+    { id: 1, name: 'Наличные', type: 'cash', balance: 0, includeInTotal: true },
+    { id: 2, name: 'Карта Сбер', type: 'virtual', balance: 0, includeInTotal: true },
+    { id: 3, name: 'Инвестиции', type: 'investment', balance: 0, includeInTotal: false }
   ];
 
   const [accounts, setAccounts] = useState<Account[]>(defaultAccounts);
@@ -55,10 +78,9 @@ export default function Home() {
   useEffect(() => { if (isMounted) localStorage.setItem('uspex_debts', JSON.stringify(debts)); }, [debts, isMounted]);
   useEffect(() => { if (isMounted) localStorage.setItem('uspex_habits', JSON.stringify(habits)); }, [habits, isMounted]);
 
-  // === РЕГИСТРАЦИЯ SERVICE WORKER (НОВОЕ) ===
   useEffect(() => {
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW registration failed:', err));
+      navigator.serviceWorker.register('/sw.js').catch(err => console.log('SW failed:', err));
     }
   }, []);
 
@@ -76,16 +98,16 @@ export default function Home() {
   const [accType, setAccType] = useState<'cash' | 'virtual' | 'investment'>('cash');
   const [accBalance, setAccBalance] = useState('');
 
-  const totalBalance = accounts.reduce((s, a) => s + a.balance, 0);
-  const cashBalance = accounts.filter(a => a.type === 'cash').reduce((s, a) => s + a.balance, 0);
-  const virtualBalance = accounts.filter(a => a.type === 'virtual').reduce((s, a) => s + a.balance, 0);
-  const investmentBalance = accounts.filter(a => a.type === 'investment').reduce((s, a) => s + a.balance, 0);
+  // === НОВОЕ: считаем баланс только по включённым счетам ===
+  const totalBalance = accounts.filter(a => a.includeInTotal).reduce((s, a) => s + a.balance, 0);
+  const cashBalance = accounts.filter(a => a.type === 'cash' && a.includeInTotal).reduce((s, a) => s + a.balance, 0);
+  const virtualBalance = accounts.filter(a => a.type === 'virtual' && a.includeInTotal).reduce((s, a) => s + a.balance, 0);
+  const investmentBalance = accounts.filter(a => a.type === 'investment' && a.includeInTotal).reduce((s, a) => s + a.balance, 0);
   const owedToMe = debts.filter(d => d.direction === 'owed_to_me').reduce((s, d) => s + d.amount, 0);
   const iOwe = debts.filter(d => d.direction === 'i_owe').reduce((s, d) => s + d.amount, 0);
   const lostToHabits = habits.filter(h => h.type === 'bad' && h.completedToday).reduce((s, h) => s + h.dailyImpact, 0);
   const savedByHabits = habits.filter(h => h.type === 'good' && h.completedToday).reduce((s, h) => s + h.dailyImpact, 0);
 
-  // === ЗВУК АКТИВАЦИИ (как у Алисы — два приятных тона) ===
   const playActivationSound = useCallback(() => {
     try {
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -110,7 +132,6 @@ export default function Home() {
     } catch (e) {}
   }, []);
 
-  // === ЗВУК УСПЕХА (после добавления операции) ===
   const playSuccessSound = useCallback(() => {
     try {
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -128,7 +149,6 @@ export default function Home() {
     } catch (e) {}
   }, []);
 
-  // === ЗВУК ОШИБКИ ===
   const playErrorSound = useCallback(() => {
     try {
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -146,7 +166,6 @@ export default function Home() {
 
   const vibrate = (pattern: number | number[]) => { if (navigator.vibrate) navigator.vibrate(pattern); };
 
-  // === ПАРСЕР КОМАНД ===
   const parseVoiceCommand = (text: string) => {
     const lower = text.toLowerCase();
     let amount = 0;
@@ -189,13 +208,11 @@ export default function Home() {
     return { amount, type, title: title.charAt(0).toUpperCase() + title.slice(1), accountId, category };
   };
 
-  // === ПРОВЕРКА СЛОВА "УСПЕХ" ===
   const isWakeWord = (text: string): boolean => {
     const lower = text.toLowerCase().replace(/[^а-яё]/g, '');
     return lower.includes('успех') || lower === 'успех';
   };
 
-  // === СЛУШАТЕЛЬ КОМАНДЫ ===
   const startCommandListener = useCallback(() => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) return;
@@ -242,7 +259,6 @@ export default function Home() {
     }
   }, [accounts, transactions, playErrorSound, playSuccessSound]);
 
-  // === ГЛАВНЫЙ СЛУШАТЕЛЬ (постоянный) ===
   const startWakeWordListener = useCallback(() => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) return;
@@ -296,7 +312,6 @@ export default function Home() {
     try { rec.start(); } catch (e) {}
   }, [playActivationSound, startCommandListener]);
 
-  // === ВКЛ/ВЫКЛ ===
   const toggleVoiceControl = () => {
     if (voiceMode === 'off') {
       shouldListenRef.current = true;
@@ -332,12 +347,17 @@ export default function Home() {
   };
   const addDebt = () => { if (!debtPerson || !debtAmount) return; setDebts([{ id: Date.now(), person: debtPerson, amount: Number(debtAmount), direction: debtDir }, ...debts]); setDebtPerson(''); setDebtAmount(''); setShowModal(false); };
   const addHabit = () => { if (!habitName || !habitImpact) return; setHabits([{ id: Date.now(), name: habitName, type: habitType, dailyImpact: Number(habitImpact), completedToday: false }, ...habits]); setHabitName(''); setHabitImpact(''); setShowModal(false); };
-  const addAccount = () => { if (!accName) return; setAccounts([...accounts, { id: Date.now(), name: accName, type: accType, balance: Number(accBalance) || 0 }]); setAccName(''); setAccBalance(''); setShowModal(false); };
+  const addAccount = () => { if (!accName) return; setAccounts([...accounts, { id: Date.now(), name: accName, type: accType, balance: Number(accBalance) || 0, includeInTotal: true }]); setAccName(''); setAccBalance(''); setShowModal(false); };
   const toggleHabit = (id: number) => setHabits(habits.map(h => h.id === id ? { ...h, completedToday: !h.completedToday } : h));
   const deleteTransaction = (id: number) => { const tx = transactions.find(t => t.id === id); if (tx) { setAccounts(accounts.map(a => a.id === tx.accountId ? { ...a, balance: a.balance - tx.amount } : a)); setTransactions(transactions.filter(t => t.id !== id)); } };
   const deleteDebt = (id: number) => setDebts(debts.filter(d => d.id !== id));
   const deleteHabit = (id: number) => setHabits(habits.filter(h => h.id !== id));
   const deleteAccount = (id: number) => { if (transactions.some(t => t.accountId === id)) { alert('Нельзя удалить счёт с операциями!'); return; } setAccounts(accounts.filter(a => a.id !== id)); };
+  
+  // === НОВОЕ: переключение учёта счёта в общем балансе ===
+  const toggleAccountInTotal = (id: number) => {
+    setAccounts(accounts.map(a => a.id === id ? { ...a, includeInTotal: !a.includeInTotal } : a));
+  };
 
   const exportData = () => { const data = { accounts, transactions, debts, habits, exportDate: new Date().toISOString() }; const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `uspex_backup_${new Date().toLocaleDateString('ru-RU').replace(/\./g, '-')}.json`; a.click(); URL.revokeObjectURL(url); };
   const importData = (event: React.ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (e) => { try { const data = JSON.parse(e.target?.result as string); if (data.accounts) setAccounts(data.accounts); if (data.transactions) setTransactions(data.transactions); if (data.debts) setDebts(data.debts); if (data.habits) setHabits(data.habits); alert('Данные успешно загружены!'); } catch { alert('Ошибка: неверный формат файла'); } }; reader.readAsText(file); };
@@ -346,26 +366,27 @@ export default function Home() {
   if (!isMounted) return null;
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 font-sans pb-32">
-      <header className="bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center sticky top-0 z-10">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-sans pb-32 transition-colors duration-300">
+      <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex justify-between items-center sticky top-0 z-10 transition-colors duration-300">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center"><TrendingUp className="text-white w-5 h-5" /></div>
-          <h1 className="text-xl font-bold tracking-tight text-indigo-900">Uspex</h1>
+          <h1 className="text-xl font-bold tracking-tight text-indigo-900 dark:text-indigo-300">Uspex</h1>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={exportData} className="p-2 text-gray-600 hover:text-indigo-600 hover:bg-gray-100 rounded-lg" title="Экспорт"><Download className="w-5 h-5" /></button>
-          <label className="p-2 text-gray-600 hover:text-indigo-600 hover:bg-gray-100 rounded-lg cursor-pointer" title="Импорт"><Upload className="w-5 h-5" /><input type="file" accept=".json" onChange={importData} className="hidden" /></label>
-          <div className="w-10 h-10 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center text-sm font-bold">АИ</div>
+          <button onClick={() => setShowSettings(true)} className="p-2 text-gray-600 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors" title="Настройки">
+            <Settings className="w-5 h-5" />
+          </button>
+          <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 rounded-full flex items-center justify-center text-sm font-bold">АИ</div>
         </div>
       </header>
 
       <main className="max-w-4xl mx-auto p-6 space-y-8">
         <div>
-          <h2 className="text-2xl font-semibold text-gray-800">Добрый день! 👋</h2>
-          <p className="text-gray-500">Сводка ваших финансов и привычек.</p>
+          <h2 className="text-2xl font-semibold text-gray-800 dark:text-gray-100">Добрый день! 👋</h2>
+          <p className="text-gray-500 dark:text-gray-400">Сводка ваших финансов и привычек.</p>
         </div>
 
-        <div className="bg-indigo-600 text-white p-6 rounded-2xl shadow-sm">
+        <div className="bg-indigo-600 dark:bg-indigo-700 text-white p-6 rounded-2xl shadow-sm">
           <p className="text-indigo-200 text-sm font-medium mb-1">Общий баланс</p>
           <h3 className="text-4xl font-bold mb-4">{totalBalance.toLocaleString('ru-RU')} ₽</h3>
           <div className="grid grid-cols-3 gap-4 text-sm">
@@ -376,45 +397,71 @@ export default function Home() {
         </div>
 
         <div>
-          <h3 className="text-lg font-semibold mb-4">Мои счета</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Мои счета</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400">👁️ — учитывается в балансе</p>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             {accounts.map(acc => (
-              <div key={acc.id} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+              <div key={acc.id} className={`bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-sm border transition-colors duration-300 ${
+                acc.includeInTotal 
+                  ? 'border-gray-100 dark:border-gray-700' 
+                  : 'border-gray-200 dark:border-gray-600 opacity-60'
+              }`}>
                 <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${acc.type === 'cash' ? 'bg-green-100 text-green-600' : acc.type === 'virtual' ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'}`}>{getAccountIcon(acc.type)}</div>
-                    <div><p className="font-medium text-sm">{acc.name}</p><p className="text-xs text-gray-500">{acc.type === 'cash' ? 'Наличные' : acc.type === 'virtual' ? 'Виртуальные' : 'Инвестиции'}</p></div>
+                  <div className="flex items-center gap-2 flex-1">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${acc.type === 'cash' ? 'bg-green-100 dark:bg-green-900/50 text-green-600 dark:text-green-300' : acc.type === 'virtual' ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300' : 'bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-300'}`}>{getAccountIcon(acc.type)}</div>
+                    <div>
+                      <p className="font-medium text-sm text-gray-800 dark:text-gray-100">{acc.name}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{acc.type === 'cash' ? 'Наличные' : acc.type === 'virtual' ? 'Виртуальные' : 'Инвестиции'}</p>
+                    </div>
                   </div>
-                  <button onClick={() => deleteAccount(acc.id)} className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                  {/* === НОВОЕ: кнопка-глаз для включения/выключения учёта === */}
+                  <button 
+                    onClick={() => toggleAccountInTotal(acc.id)} 
+                    className={`p-2 rounded-lg transition-colors ${
+                      acc.includeInTotal 
+                        ? 'text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30' 
+                        : 'text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                    }`}
+                    title={acc.includeInTotal ? 'Исключить из общего баланса' : 'Включить в общий баланс'}
+                  >
+                    {acc.includeInTotal ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
+                  </button>
                 </div>
-                <p className={`text-2xl font-bold ${acc.balance >= 0 ? 'text-gray-900' : 'text-red-500'}`}>{acc.balance.toLocaleString('ru-RU')} ₽</p>
+                <p className={`text-2xl font-bold ${acc.balance >= 0 ? 'text-gray-900 dark:text-gray-100' : 'text-red-500'}`}>{acc.balance.toLocaleString('ru-RU')} ₽</p>
+                {!acc.includeInTotal && (
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Не учитывается в балансе</p>
+                )}
+                <button onClick={() => deleteAccount(acc.id)} className="text-gray-300 hover:text-red-500 mt-2"><Trash2 className="w-4 h-4" /></button>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-          <div className="flex justify-between items-end mb-4"><p className="text-gray-500 text-sm font-medium">Долги</p>
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 transition-colors duration-300">
+          <div className="flex justify-between items-end mb-4">
+            <p className="text-gray-500 dark:text-gray-400 text-sm font-medium">Долги</p>
             <div className="text-right">
-              <div className="flex justify-between items-end mb-1"><span className="text-sm text-gray-600 mr-4">Мне должны:</span><span className="font-semibold text-green-600">+{owedToMe.toLocaleString()} ₽</span></div>
-              <div className="flex justify-between items-end"><span className="text-sm text-gray-600 mr-4">Я должен:</span><span className="font-semibold text-red-500">-{iOwe.toLocaleString()} ₽</span></div>
+              <div className="flex justify-between items-end mb-1"><span className="text-sm text-gray-600 dark:text-gray-400 mr-4">Мне должны:</span><span className="font-semibold text-green-600 dark:text-green-400">+{owedToMe.toLocaleString()} ₽</span></div>
+              <div className="flex justify-between items-end"><span className="text-sm text-gray-600 dark:text-gray-400 mr-4">Я должен:</span><span className="font-semibold text-red-500">-{iOwe.toLocaleString()} ₽</span></div>
             </div>
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-          <div className="flex items-center gap-2 mb-4"><Wallet className="w-5 h-5 text-indigo-600" /><h3 className="text-lg font-semibold">Влияние привычек сегодня</h3></div>
+        <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 transition-colors duration-300">
+          <div className="flex items-center gap-2 mb-4"><Wallet className="w-5 h-5 text-indigo-600 dark:text-indigo-400" /><h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Влияние привычек сегодня</h3></div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-            <div className="p-4 bg-green-50 rounded-xl border border-green-100"><p className="text-green-700 text-sm font-medium">Сэкономлено</p><p className="text-2xl font-bold text-green-800">+{savedByHabits.toLocaleString()} ₽</p></div>
-            <div className="p-4 bg-red-50 rounded-xl border border-red-100"><p className="text-red-700 text-sm font-medium">Потеряно</p><p className="text-2xl font-bold text-red-800">-{lostToHabits.toLocaleString()} ₽</p></div>
+            <div className="p-4 bg-green-50 dark:bg-green-900/30 rounded-xl border border-green-100 dark:border-green-800"><p className="text-green-700 dark:text-green-400 text-sm font-medium">Сэкономлено</p><p className="text-2xl font-bold text-green-800 dark:text-green-300">+{savedByHabits.toLocaleString()} ₽</p></div>
+            <div className="p-4 bg-red-50 dark:bg-red-900/30 rounded-xl border border-red-100 dark:border-red-800"><p className="text-red-700 dark:text-red-400 text-sm font-medium">Потеряно</p><p className="text-2xl font-bold text-red-800 dark:text-red-300">-{lostToHabits.toLocaleString()} ₽</p></div>
           </div>
           <div className="space-y-2">
             {habits.length === 0 ? <p className="text-center text-gray-400 py-4">Пока нет привычек.</p> : habits.map(h => (
-              <div key={h.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+              <div key={h.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl transition-colors duration-300">
                 <div className="flex items-center gap-3 flex-1">
-                  <button onClick={() => toggleHabit(h.id)} className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${h.completedToday ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-300'}`}>{h.completedToday && '✓'}</button>
-                  <span className={`font-medium ${h.completedToday ? 'line-through text-gray-400' : ''}`}>{h.name}</span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${h.type === 'bad' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>{h.type === 'bad' ? '-' : '+'}{h.dailyImpact} ₽/день</span>
+                  <button onClick={() => toggleHabit(h.id)} className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${h.completedToday ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-gray-300 dark:border-gray-500'}`}>{h.completedToday && '✓'}</button>
+                  <span className={`font-medium ${h.completedToday ? 'line-through text-gray-400' : 'text-gray-800 dark:text-gray-100'}`}>{h.name}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${h.type === 'bad' ? 'bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400' : 'bg-green-100 dark:bg-green-900/50 text-green-600 dark:text-green-400'}`}>{h.type === 'bad' ? '-' : '+'}{h.dailyImpact} ₽/день</span>
                 </div>
                 <button onClick={() => deleteHabit(h.id)} className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
               </div>
@@ -423,18 +470,18 @@ export default function Home() {
         </div>
 
         <div>
-          <h3 className="text-lg font-semibold mb-4">Последние операции</h3>
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-100">Последние операции</h3>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden transition-colors duration-300">
             {transactions.length === 0 ? <p className="text-center text-gray-400 py-8">Пока нет операций.</p> : transactions.slice(0, 10).map(tx => {
               const acc = accounts.find(a => a.id === tx.accountId);
               return (
-                <div key={tx.id} className="flex items-center justify-between p-4 border-b border-gray-50 last:border-0 hover:bg-gray-50">
+                <div key={tx.id} className="flex items-center justify-between p-4 border-b border-gray-50 dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors duration-300">
                   <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${tx.type === 'income' ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-600'}`}>{tx.type === 'income' ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownRight className="w-5 h-5" />}</div>
-                    <div><p className="font-medium">{tx.title}</p><p className="text-xs text-gray-500">{tx.date} • {acc?.name || 'Счёт'} {tx.category && `• ${tx.category}`}</p></div>
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${tx.type === 'income' ? 'bg-green-100 dark:bg-green-900/50 text-green-600 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}`}>{tx.type === 'income' ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownRight className="w-5 h-5" />}</div>
+                    <div><p className="font-medium text-gray-800 dark:text-gray-100">{tx.title}</p><p className="text-xs text-gray-500 dark:text-gray-400">{tx.date} • {acc?.name || 'Счёт'} {tx.category && `• ${tx.category}`}</p></div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className={`font-semibold ${tx.amount > 0 ? 'text-green-600' : 'text-gray-900'}`}>{tx.amount > 0 ? '+' : ''}{tx.amount.toLocaleString()} ₽</span>
+                    <span className={`font-semibold ${tx.amount > 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-900 dark:text-gray-100'}`}>{tx.amount > 0 ? '+' : ''}{tx.amount.toLocaleString()} ₽</span>
                     <button onClick={() => deleteTransaction(tx.id)} className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
                   </div>
                 </div>
@@ -445,16 +492,16 @@ export default function Home() {
 
         {debts.length > 0 && (
           <div>
-            <h3 className="text-lg font-semibold mb-4">Детали долгов</h3>
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-100">Детали долгов</h3>
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden transition-colors duration-300">
               {debts.map(d => (
-                <div key={d.id} className="flex items-center justify-between p-4 border-b border-gray-50 last:border-0">
+                <div key={d.id} className="flex items-center justify-between p-4 border-b border-gray-50 dark:border-gray-700 last:border-0 transition-colors duration-300">
                   <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${d.direction === 'owed_to_me' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>{d.direction === 'owed_to_me' ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownRight className="w-5 h-5" />}</div>
-                    <div><p className="font-medium">{d.person}</p><p className="text-xs text-gray-500">{d.direction === 'owed_to_me' ? 'Мне должны' : 'Я должен'}</p></div>
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${d.direction === 'owed_to_me' ? 'bg-green-100 dark:bg-green-900/50 text-green-600 dark:text-green-400' : 'bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400'}`}>{d.direction === 'owed_to_me' ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownRight className="w-5 h-5" />}</div>
+                    <div><p className="font-medium text-gray-800 dark:text-gray-100">{d.person}</p><p className="text-xs text-gray-500 dark:text-gray-400">{d.direction === 'owed_to_me' ? 'Мне должны' : 'Я должен'}</p></div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className={`font-semibold ${d.direction === 'owed_to_me' ? 'text-green-600' : 'text-red-500'}`}>{d.amount.toLocaleString()} ₽</span>
+                    <span className={`font-semibold ${d.direction === 'owed_to_me' ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}>{d.amount.toLocaleString()} ₽</span>
                     <button onClick={() => deleteDebt(d.id)} className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
                   </div>
                 </div>
@@ -464,23 +511,21 @@ export default function Home() {
         )}
       </main>
 
-      {/* === КНОПКА ДОБАВИТЬ (левый нижний угол) === */}
       <button onClick={() => setShowModal(true)} className="fixed bottom-6 left-6 bg-indigo-600 text-white p-4 rounded-full shadow-lg hover:bg-indigo-700 transition flex items-center gap-2 font-medium z-40">
         <Plus className="w-5 h-5" /><span>Добавить</span>
       </button>
 
-      {/* === АЛИСА-СТИЛЬ: КРУГ С МИКРОФОНОМ (правый нижний угол) === */}
       <div className="fixed bottom-4 right-6 flex flex-col items-center z-40">
         {voiceMode !== 'off' && (
           <div className={`mb-3 px-4 py-2 rounded-xl text-sm font-medium shadow-lg transition-all ${
-            voiceMode === 'command' ? 'bg-green-500 text-white' : 'bg-white text-gray-700 border border-gray-200'
+            voiceMode === 'command' ? 'bg-green-500 text-white' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-700'
           }`}>
             {voiceMode === 'waiting' && 'Скажите «Успех»'}
             {voiceMode === 'command' && (voiceStatus || 'Слушаю команду...')}
           </div>
         )}
         {voiceMode === 'off' && lastCommand === '' && (
-          <div className="mb-3 px-4 py-2 rounded-xl text-sm font-medium bg-white text-gray-500 border border-gray-200 shadow">
+          <div className="mb-3 px-4 py-2 rounded-xl text-sm font-medium bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700 shadow">
             Нажмите для голосового управления
           </div>
         )}
@@ -504,7 +549,7 @@ export default function Home() {
             onClick={toggleVoiceControl}
             className={`relative w-16 h-16 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 ${
               voiceMode === 'off'
-                ? 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                ? 'bg-gray-700 dark:bg-gray-600 hover:bg-gray-600 dark:hover:bg-gray-500 text-gray-300'
                 : voiceMode === 'waiting'
                 ? 'bg-red-500 text-white scale-110'
                 : 'bg-green-500 text-white scale-125'
@@ -515,67 +560,156 @@ export default function Home() {
         </div>
       </div>
 
-      {/* === МОДАЛЬНОЕ ОКНО === */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md p-6 shadow-xl max-h-[90vh] overflow-y-auto transition-colors duration-300">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold">Добавить</h3>
-              <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+              <h3 className="text-lg font-bold text-gray-800 dark:text-gray-100">Добавить</h3>
+              <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><X className="w-5 h-5" /></button>
             </div>
             <div className="flex gap-2 mb-4 flex-wrap">
               {(['transaction', 'account', 'debt', 'habit'] as const).map(t => (
-                <button key={t} onClick={() => setTab(t)} className={`flex-1 py-2 text-sm font-medium rounded-lg transition ${tab === t ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                <button key={t} onClick={() => setTab(t)} className={`flex-1 py-2 text-sm font-medium rounded-lg transition ${tab === t ? 'bg-indigo-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
                   {t === 'transaction' ? 'Операция' : t === 'account' ? 'Счёт' : t === 'debt' ? 'Долг' : 'Привычка'}
                 </button>
               ))}
             </div>
             {tab === 'transaction' && (
               <div className="space-y-3">
-                <select value={txAccountId} onChange={e => setTxAccountId(Number(e.target.value))} className="w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">{accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
-                <input value={txTitle} onChange={e => setTxTitle(e.target.value)} placeholder="Название" className="w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                <input value={txAmount} onChange={e => setTxAmount(e.target.value)} type="number" placeholder="Сумма" className="w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <select value={txAccountId} onChange={e => setTxAccountId(Number(e.target.value))} className="w-full p-3 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">{accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
+                <input value={txTitle} onChange={e => setTxTitle(e.target.value)} placeholder="Название" className="w-full p-3 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <input value={txAmount} onChange={e => setTxAmount(e.target.value)} type="number" placeholder="Сумма" className="w-full p-3 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500" />
                 <div className="flex gap-2">
-                  <button onClick={() => setTxType('income')} className={`flex-1 py-2 rounded-lg font-medium ${txType === 'income' ? 'bg-green-100 text-green-700' : 'bg-gray-100'}`}>Доход</button>
-                  <button onClick={() => setTxType('expense')} className={`flex-1 py-2 rounded-lg font-medium ${txType === 'expense' ? 'bg-red-100 text-red-700' : 'bg-gray-100'}`}>Расход</button>
+                  <button onClick={() => setTxType('income')} className={`flex-1 py-2 rounded-lg font-medium ${txType === 'income' ? 'bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}`}>Доход</button>
+                  <button onClick={() => setTxType('expense')} className={`flex-1 py-2 rounded-lg font-medium ${txType === 'expense' ? 'bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}`}>Расход</button>
                 </div>
                 <button onClick={addTransaction} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700">Добавить операцию</button>
               </div>
             )}
             {tab === 'account' && (
               <div className="space-y-3">
-                <input value={accName} onChange={e => setAccName(e.target.value)} placeholder="Название счёта" className="w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                <input value={accBalance} onChange={e => setAccBalance(e.target.value)} type="number" placeholder="Текущий баланс" className="w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <input value={accName} onChange={e => setAccName(e.target.value)} placeholder="Название счёта" className="w-full p-3 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <input value={accBalance} onChange={e => setAccBalance(e.target.value)} type="number" placeholder="Текущий баланс" className="w-full p-3 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500" />
                 <div className="flex gap-2">
-                  <button onClick={() => setAccType('cash')} className={`flex-1 py-2 rounded-lg font-medium text-sm ${accType === 'cash' ? 'bg-green-100 text-green-700' : 'bg-gray-100'}`}>💵 Наличные</button>
-                  <button onClick={() => setAccType('virtual')} className={`flex-1 py-2 rounded-lg font-medium text-sm ${accType === 'virtual' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100'}`}>💳 Виртуальные</button>
-                  <button onClick={() => setAccType('investment')} className={`flex-1 py-2 rounded-lg font-medium text-sm ${accType === 'investment' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100'}`}>📈 Инвестиции</button>
+                  <button onClick={() => setAccType('cash')} className={`flex-1 py-2 rounded-lg font-medium text-sm ${accType === 'cash' ? 'bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}`}>💵 Наличные</button>
+                  <button onClick={() => setAccType('virtual')} className={`flex-1 py-2 rounded-lg font-medium text-sm ${accType === 'virtual' ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}`}>💳 Виртуальные</button>
+                  <button onClick={() => setAccType('investment')} className={`flex-1 py-2 rounded-lg font-medium text-sm ${accType === 'investment' ? 'bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}`}>📈 Инвестиции</button>
                 </div>
                 <button onClick={addAccount} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700">Добавить счёт</button>
               </div>
             )}
             {tab === 'debt' && (
               <div className="space-y-3">
-                <input value={debtPerson} onChange={e => setDebtPerson(e.target.value)} placeholder="Имя человека" className="w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                <input value={debtAmount} onChange={e => setDebtAmount(e.target.value)} type="number" placeholder="Сумма" className="w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <input value={debtPerson} onChange={e => setDebtPerson(e.target.value)} placeholder="Имя человека" className="w-full p-3 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <input value={debtAmount} onChange={e => setDebtAmount(e.target.value)} type="number" placeholder="Сумма" className="w-full p-3 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500" />
                 <div className="flex gap-2">
-                  <button onClick={() => setDebtDir('i_owe')} className={`flex-1 py-2 rounded-lg font-medium ${debtDir === 'i_owe' ? 'bg-red-100 text-red-700' : 'bg-gray-100'}`}>Я должен</button>
-                  <button onClick={() => setDebtDir('owed_to_me')} className={`flex-1 py-2 rounded-lg font-medium ${debtDir === 'owed_to_me' ? 'bg-green-100 text-green-700' : 'bg-gray-100'}`}>Мне должны</button>
+                  <button onClick={() => setDebtDir('i_owe')} className={`flex-1 py-2 rounded-lg font-medium ${debtDir === 'i_owe' ? 'bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}`}>Я должен</button>
+                  <button onClick={() => setDebtDir('owed_to_me')} className={`flex-1 py-2 rounded-lg font-medium ${debtDir === 'owed_to_me' ? 'bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}`}>Мне должны</button>
                 </div>
                 <button onClick={addDebt} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700">Добавить долг</button>
               </div>
             )}
             {tab === 'habit' && (
               <div className="space-y-3">
-                <input value={habitName} onChange={e => setHabitName(e.target.value)} placeholder="Название привычки" className="w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500" />
-                <input value={habitImpact} onChange={e => setHabitImpact(e.target.value)} type="number" placeholder="Стоимость в день (₽)" className="w-full p-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <input value={habitName} onChange={e => setHabitName(e.target.value)} placeholder="Название привычки" className="w-full p-3 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <input value={habitImpact} onChange={e => setHabitImpact(e.target.value)} type="number" placeholder="Стоимость в день (₽)" className="w-full p-3 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500" />
                 <div className="flex gap-2">
-                  <button onClick={() => setHabitType('bad')} className={`flex-1 py-2 rounded-lg font-medium ${habitType === 'bad' ? 'bg-red-100 text-red-700' : 'bg-gray-100'}`}>Тратит 💸</button>
-                  <button onClick={() => setHabitType('good')} className={`flex-1 py-2 rounded-lg font-medium ${habitType === 'good' ? 'bg-green-100 text-green-700' : 'bg-gray-100'}`}>Экономит 💰</button>
+                  <button onClick={() => setHabitType('bad')} className={`flex-1 py-2 rounded-lg font-medium ${habitType === 'bad' ? 'bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}`}>Тратит 💸</button>
+                  <button onClick={() => setHabitType('good')} className={`flex-1 py-2 rounded-lg font-medium ${habitType === 'good' ? 'bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}`}>Экономит 💰</button>
                 </div>
                 <button onClick={addHabit} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-medium hover:bg-indigo-700">Добавить привычку</button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {showSettings && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md p-6 shadow-xl transition-colors duration-300">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-lg font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+                <Settings className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                Настройки
+              </h3>
+              <button onClick={() => setShowSettings(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><X className="w-5 h-5" /></button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl transition-colors duration-300">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    {theme === 'dark' ? (
+                      <div className="w-10 h-10 bg-indigo-900/50 rounded-lg flex items-center justify-center">
+                        <Moon className="w-5 h-5 text-indigo-400" />
+                      </div>
+                    ) : (
+                      <div className="w-10 h-10 bg-yellow-100 rounded-lg flex items-center justify-center">
+                        <Sun className="w-5 h-5 text-yellow-600" />
+                      </div>
+                    )}
+                    <div>
+                      <p className="font-medium text-gray-800 dark:text-gray-100">Тёмная тема</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {theme === 'dark' ? 'Включена' : 'Выключена'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={toggleTheme}
+                    className={`relative w-14 h-8 rounded-full transition-colors duration-300 ${
+                      theme === 'dark' ? 'bg-indigo-600' : 'bg-gray-300'
+                    }`}
+                  >
+                    <div className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 flex items-center justify-center ${
+                      theme === 'dark' ? 'translate-x-7' : 'translate-x-1'
+                    }`}>
+                      {theme === 'dark' ? (
+                        <Moon className="w-3 h-3 text-indigo-600" />
+                      ) : (
+                        <Sun className="w-3 h-3 text-yellow-600" />
+                      )}
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl transition-colors duration-300">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-900/50 rounded-lg flex items-center justify-center">
+                    <TrendingUp className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-800 dark:text-gray-100">Uspex v1.2</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Финансы и привычки</p>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => { exportData(); }}
+                className="w-full p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl transition-colors duration-300 flex items-center gap-3 hover:bg-gray-100 dark:hover:bg-gray-700 text-left"
+              >
+                <div className="w-10 h-10 bg-green-100 dark:bg-green-900/50 rounded-lg flex items-center justify-center">
+                  <Download className="w-5 h-5 text-green-600 dark:text-green-400" />
+                </div>
+                <div>
+                  <p className="font-medium text-gray-800 dark:text-gray-100">Экспорт данных</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Сохранить резервную копию</p>
+                </div>
+              </button>
+
+              <label className="w-full p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl transition-colors duration-300 flex items-center gap-3 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer">
+                <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/50 rounded-lg flex items-center justify-center">
+                  <Upload className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                </div>
+                <div>
+                  <p className="font-medium text-gray-800 dark:text-gray-100">Импорт данных</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Загрузить резервную копию</p>
+                </div>
+                <input type="file" accept=".json" onChange={importData} className="hidden" />
+              </label>
+            </div>
           </div>
         </div>
       )}
